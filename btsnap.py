@@ -10,6 +10,27 @@ snapshot-super-volume -- a volume with many snapshot-volumes..
 For example, a volume /var/storage/.snapshots containing subvolumes
 music, pictures, documents, etc. where each of them contains
 dated+tagged snapshots.
+
+An example setup:
+
+/var/storage/ -- volume containing specific subvolumes
+/var/storage/documents/ -- subvolume of documents
+/var/storage/music/ -- subvolume of music
+/var/storage/pictures/ -- subvolume of pictures
+
+/var/storage/.snapshots/ -- snapshot super volume containing all snapshots
+/var/storage/.snapshots/documents/ -- snapshot volume of documents
+    2026-03-07T21:52:32.099615@daily -- dated, tagged snapshot
+    2026-03-08T21:52:32.099615@daily
+/var/storage/.snapshots/music/ -- snapshot volume of music
+/var/storage/.snapshots/pictures/ -- snapshot volume of pictures
+
+/var/backup/ -- another device snapshot super volume for sending backups
+/var/backup/documents/ -- backup of documents snapshot volume
+    2026-03-07T21:52:32.099615@daily
+    2026-03-08T21:52:32.099615@daily
+/var/backup/music/
+/var/backup/pictures/
 """
 
 import os
