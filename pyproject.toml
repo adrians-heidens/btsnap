@@ -3,8 +3,8 @@ requires = ["hatchling >= 1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "btrfssnap"
+name = "btsnap"
 version = "0.0.1"
 
 [project.scripts]
-btrfssnap = "btrfssnap:main"
+btrfssnap = "btsnap:main"
