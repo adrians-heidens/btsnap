@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 
-"""Collection of scripts for specific workflow of btrfs backups."""
+"""Collection of scripts for specific workflow of btrfs backups.
+
+snapshot-volume -- a volume which contains snapshots in form of {date}@{tag}.
+For example, a volume /var/storage/.snapshots/movies containing snapshots
+2026-03-07T21:52:32.099615@daily
+
+snapshot-super-volume -- a volume with many snapshot-volumes..
+For example, a volume /var/storage/.snapshots containing subvolumes
+music, pictures, documents, etc. where each of them contains
+dated+tagged snapshots.
+"""
 
 import os
 import re
@@ -50,43 +60,6 @@ def create_snapshot(snapdir, source, tag, now):
         str(source),
         str(dst) + f"@{tag}",
         ], check=True)
-
-
-def create_snapshot_cmd(args):
-    """Command func which calls create_snapshot."""
-
-    tag = args.tag
-    if tag == "":
-        tag = "one"
-    now = datetime.datetime.now(datetime.UTC)
-    for source in args.source:
-        create_snapshot(args.snapdir, source, tag, now)
-
-
-def create_all_snapshots_cmd(args):
-    """Command func which calls create_snapshot for every subvolume in
-    'source' volume."""
-
-    # Get list of volumes to make snap of.
-    o = subprocess.run([
-        "btrfs",
-        "subvolume",
-        "list",
-        "-o",
-        str(args.source)
-        ], capture_output=True, check=True)
-
-    # Go though snap volumes and take snapshot. 
-    now = datetime.datetime.now(datetime.UTC)
-    for line in o.stdout.splitlines():
-        cols = line.split()
-        path = pathlib.Path(str(cols[8], "utf8"))
-        name = path.name
-        if name.startswith("."):
-            continue
-
-        source = args.source / name
-        create_snapshot(args.snapdir, source, args.tag, now)
 
 
 def send_snapshot(destvol, source, tag):
@@ -180,55 +153,6 @@ def send_snapshot(destvol, source, tag):
         last_sync = index - 1
 
 
-def send_snapshot_cmd(args):
-    """Command func of send_snapshot."""
-
-    send_snapshot(args.destvol, args.source, args.tag)
-
-
-def send_all_snapshots_cmd(args):
-    """Command func which go through all snapshots in source directory and
-    send them to destvol."""
-
-    # Create destination volume.
-    destvol = args.destvol
-    if not destvol.exists() and args.create_destvol:
-        subprocess.run([
-           "btrfs",
-           "subvolume",
-           "create",
-           str(destvol)
-           ], check=True)
-    elif not destvol.exists():
-        raise Exception("Destination volume does not exist")
-
-    # Get list of source volumes.
-    o = subprocess.run([
-        "btrfs",
-        "subvolume",
-        "list",
-        "-o",
-        str(args.sourcedir)
-        ], capture_output=True, check=True)
-
-    # Send each source vol to according destination and delete old snapshots.
-    for line in o.stdout.splitlines():
-        cols = line.split()
-        path = pathlib.Path(str(cols[8], "utf8"))
-        name = path.name
-        if name.startswith("."):
-            continue
-
-        dest = destvol / name
-        send_snapshot(dest, args.sourcedir / name, args.tag)
-
-        if args.trim_dst is not None:
-            trim_snapshots(dest, args.tag, args.trim_dst)
-
-        if args.trim_src is not None:
-            trim_snapshots(args.sourcedir / name, args.tag, args.trim_src)
-
-
 def tag_snapshots(subvol, tag):
     """Find latest snapshot and duplicate it with another tag."""
 
@@ -254,34 +178,6 @@ def tag_snapshots(subvol, tag):
         str(latest),
         str(dst)
         ], check=True)
-
-
-def tag_snapshots_cmd(args):
-    """Command func of tag_snapshots."""
-
-    tag_snapshots(args.subvol, args.tag)
-
-
-def tag_all_snapshots_cmd(args):
-    """Command func which goes through all subvolumes and tag newest."""
-
-    subvol = args.subvol
-    o = subprocess.run([
-        "btrfs",
-        "subvolume",
-        "list",
-        "-o",
-        str(subvol)
-        ], check=True, capture_output=True)
-
-    for line in o.stdout.splitlines():
-        cols = line.split()
-        path = pathlib.Path(str(cols[8], "utf8"))
-        if path.name.startswith("."):
-            continue
-
-        vol = subvol.parent / path
-        tag_snapshots(vol, args.tag)
 
 
 def trim_snapshots(subvol, tag, size):
@@ -328,9 +224,184 @@ def trim_snapshots(subvol, tag, size):
             ], check=True)
 
 
-def cmd_trim_snapshots(args):
-    """Command func of trim_snapshots."""
+def cmd_create_snapshot():
+    parser = argparse.ArgumentParser(
+        description="Create snapshot of specified volume.")
+    parser.add_argument("snapdir", type=pathlib.Path,
+                        help="snapshot volume")
+    parser.add_argument("source", type=pathlib.Path, nargs="+",
+                        help="volume to create snapshot of")
+    parser.add_argument("--tag", default="one",
+                        help="tag of snapshot (default: %(default)s)")
 
+    args = parser.parse_args()
+
+    tag = args.tag
+    if tag == "":
+        tag = "one"
+    now = datetime.datetime.now(datetime.UTC)
+    for source in args.source:
+        create_snapshot(args.snapdir, source, tag, now)
+
+
+def cmd_create_all_snapshots():
+    parser = argparse.ArgumentParser(
+        description="Create snapshots of all subvolumes.")
+    parser.add_argument("snapdir", type=pathlib.Path,
+                        help="snapshot volume")
+    parser.add_argument("source", type=pathlib.Path,
+                        help="volume which subvolumes will be take snapshot of")
+    parser.add_argument("--tag", default="one",
+                        help="tag of snapshot (default: %(default)s)")
+
+    args = parser.parse_args()
+
+    # Get list of volumes to make snap of.
+    o = subprocess.run([
+        "btrfs",
+        "subvolume",
+        "list",
+        "-o",
+        str(args.source)
+        ], capture_output=True, check=True)
+
+    # Go though snap volumes and take snapshot.
+    now = datetime.datetime.now(datetime.UTC)
+    for line in o.stdout.splitlines():
+        cols = line.split()
+        path = pathlib.Path(str(cols[8], "utf8"))
+        name = path.name
+        if name.startswith("."):
+            continue
+
+        source = args.source / name
+        create_snapshot(args.snapdir, source, args.tag, now)
+
+
+def cmd_send_snapshots():
+    parser = argparse.ArgumentParser(
+        description="Send snapshots to another device volume.")
+    parser.add_argument("destvol", type=pathlib.Path,
+                        help="destination volume")
+    parser.add_argument("source", type=pathlib.Path,
+                        help="volume which contains snapshots to send")
+    parser.add_argument("--tag", default="one",
+                        help="tag of snapshot (default: %(default)s)")
+
+    args = parser.parse_args()
+    send_snapshot(args.destvol, args.source, args.tag)
+
+
+def cmd_send_all_snapshots():
+    parser = argparse.ArgumentParser(
+        description="Send all snapshot directory to another device volume.")
+    parser.add_argument("destvol", type=pathlib.Path,
+                        help="destination volume")
+    parser.add_argument("sourcedir", type=pathlib.Path,
+                        help="snapshot directory to send")
+    parser.add_argument("--tag", default="one",
+                        help="tag of snapshot (default: %(default)s)")
+    parser.add_argument("--trim-src", type=int,
+                        help="trim src dir to this many snapshots")
+    parser.add_argument("--trim-dst", type=int,
+                        help="trim dst dir to this many snapshots")
+    parser.add_argument("--create-destvol", action="store_true",
+                        help="create destination volume if not exists")
+
+    args = parser.parse_args()
+
+    # Create destination volume.
+    destvol = args.destvol
+    if not destvol.exists() and args.create_destvol:
+        subprocess.run([
+            "btrfs",
+            "subvolume",
+            "create",
+            str(destvol)
+        ], check=True)
+    elif not destvol.exists():
+        raise Exception("Destination volume does not exist")
+
+    # Get list of source volumes.
+    o = subprocess.run([
+        "btrfs",
+        "subvolume",
+        "list",
+        "-o",
+        str(args.sourcedir)
+    ], capture_output=True, check=True)
+
+    # Send each source vol to according destination and delete old snapshots.
+    for line in o.stdout.splitlines():
+        cols = line.split()
+        path = pathlib.Path(str(cols[8], "utf8"))
+        name = path.name
+        if name.startswith("."):
+            continue
+
+        dest = destvol / name
+        send_snapshot(dest, args.sourcedir / name, args.tag)
+
+        if args.trim_dst is not None:
+            trim_snapshots(dest, args.tag, args.trim_dst)
+
+        if args.trim_src is not None:
+            trim_snapshots(args.sourcedir / name, args.tag, args.trim_src)
+
+
+def cmd_tag():
+    parser = argparse.ArgumentParser(
+        description="Duplicate latest snapshot with new tag.")
+    parser.add_argument("subvol", type=pathlib.Path,
+                        help="target snapshot volume")
+    parser.add_argument("--tag", default="one",
+                        help="tag to create (default: %(default)s)")
+
+    args = parser.parse_args()
+    tag_snapshots(args.subvol, args.tag)
+
+
+def cmd_tag_all():
+    parser = argparse.ArgumentParser(
+        description="Duplicate latest snapshot for each subvolume.")
+    parser.add_argument("subvol", type=pathlib.Path,
+                        help="snapshot super volume to tag")
+    parser.add_argument("--tag", default="one",
+                        help="tag to create (default: %(default)s)")
+
+    args = parser.parse_args()
+
+    subvol = args.subvol
+    o = subprocess.run([
+        "btrfs",
+        "subvolume",
+        "list",
+        "-o",
+        str(subvol)
+    ], check=True, capture_output=True)
+
+    for line in o.stdout.splitlines():
+        cols = line.split()
+        path = pathlib.Path(str(cols[8], "utf8"))
+        if path.name.startswith("."):
+            continue
+
+        vol = subvol.parent / path
+        tag_snapshots(vol, args.tag)
+
+
+def cmd_trim():
+    parser = argparse.ArgumentParser(
+        description="delete snapshots, keep only specified size of newest."
+    )
+    parser.add_argument("subvol", type=pathlib.Path,
+                        help="target snapshot volume")
+    parser.add_argument("tag",
+                        help="trim snapshots of this tag")
+    parser.add_argument("size", type=int,
+                        help="number of snapshots to leave")
+
+    args = parser.parse_args()
     subvol = args.subvol
     if not subvol.exists():
         return
@@ -338,7 +409,17 @@ def cmd_trim_snapshots(args):
     trim_snapshots(subvol, args.tag, args.size)
 
 
-def cmd_trim_all_snapshots(args):
+def cmd_trim_all():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("subvol", type=pathlib.Path,
+                        help="target snapshot super volume")
+    parser.add_argument("tag",
+                        help="trim snapshots of this tag")
+    parser.add_argument("size", type=int,
+                        help="number of snapshots to leave")
+
+    args = parser.parse_args()
+
     subvol = args.subvol
     if not subvol.exists():
         return
@@ -360,68 +441,3 @@ def cmd_trim_all_snapshots(args):
         vol = subvol.parent / path
         print("vol:", vol)
         trim_snapshots(vol, args.tag, args.size)
-
-
-def main():
-    parser_main = argparse.ArgumentParser()
-    subparsers = parser_main.add_subparsers()
-
-    parser_create = subparsers.add_parser("snap")
-    parser_create.add_argument("snapdir", type=pathlib.Path)
-    parser_create.add_argument("source", type=pathlib.Path, nargs="+")
-    parser_create.add_argument("--tag", default="one")
-    parser_create.set_defaults(func=create_snapshot_cmd)
-
-    parser_snap_many = subparsers.add_parser("snap-all")
-    parser_snap_many.add_argument("snapdir", type=pathlib.Path)
-    parser_snap_many.add_argument("source", type=pathlib.Path)
-    parser_snap_many.add_argument("--tag", default="one")
-    parser_snap_many.set_defaults(func=create_all_snapshots_cmd)
-
-    parser = subparsers.add_parser("send")
-    parser.add_argument("destvol", type=pathlib.Path)
-    parser.add_argument("source", type=pathlib.Path)
-    parser.add_argument("--tag", default="one")
-    parser.set_defaults(func=send_snapshot_cmd)
-
-    parser = subparsers.add_parser("send-all")
-    parser.add_argument("destvol", type=pathlib.Path)
-    parser.add_argument("sourcedir", type=pathlib.Path)
-    parser.add_argument("--tag", default="one")
-    parser.add_argument("--trim-src", type=int)
-    parser.add_argument("--trim-dst", type=int)
-    parser.add_argument("--create-destvol", action="store_true")
-    parser.set_defaults(func=send_all_snapshots_cmd)
-
-    parser_tag_one = subparsers.add_parser("tag-one")
-    parser_tag_one.add_argument("subvol", type=pathlib.Path)
-    parser_tag_one.add_argument("--tag", default="one")
-    parser_tag_one.set_defaults(func=tag_snapshots_cmd)
-
-    parser_tag_all = subparsers.add_parser("tag-all")
-    parser_tag_all.add_argument("subvol", type=pathlib.Path)
-    parser_tag_all.add_argument("--tag", default="one")
-    parser_tag_all.set_defaults(func=tag_all_snapshots_cmd)
-    
-    parser = subparsers.add_parser("trim-one")
-    parser.add_argument("subvol", type=pathlib.Path)
-    parser.add_argument("tag")
-    parser.add_argument("size", type=int)
-    parser.set_defaults(func=cmd_trim_snapshots)
-
-    parser = subparsers.add_parser("trim-all")
-    parser.add_argument("subvol", type=pathlib.Path)
-    parser.add_argument("tag")
-    parser.add_argument("size", type=int)
-    parser.set_defaults(func=cmd_trim_all_snapshots)
-
-    args = parser_main.parse_args()
-    if not hasattr(args, "func"):
-        print("usage")
-        exit(2)
-
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()
