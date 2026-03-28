@@ -7,11 +7,4 @@ name = "btsnap"
 version = "0.0.1"
 
 [project.scripts]
-btsnap-create = "btsnap:cmd_create_snapshot"
-btsnap-create-all = "btsnap:cmd_create_all_snapshots"
-btsnap-send = "btsnap:cmd_send_snapshots"
-btsnap-send-all = "btsnap:cmd_send_all_snapshots"
-btsnap-tag = "btsnap:cmd_tag"
-btsnap-tag-all = "btsnap:cmd_tag_all"
-btsnap-trim = "btsnap:cmd_trim"
-btsnap-trim-all = "btsnap:cmd_trim_all"
+btsnap = "btsnap:main"
