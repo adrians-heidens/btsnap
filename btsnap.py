@@ -247,29 +247,11 @@ def trim_snapshots(subvol, tag, size):
 
 def cmd_create(args):
     now = datetime.datetime.now(datetime.UTC)
-    if not args.subvol:
-        create_snapshot(args.snapvol, args.srcvol, args.tag, now)
-        exit(0)
-
-    # Get list of volumes to make snap of.
-    o = subprocess.run([
-        "btrfs",
-        "subvolume",
-        "list",
-        "-o",
-        str(args.srcvol)
-    ], capture_output=True, check=True)
-    # Go though snap volumes and take snapshot.
-    for line in o.stdout.splitlines():
-        cols = line.split()
-        path = pathlib.Path(str(cols[8], "utf8"))
+    for path in args.srcvol:
         name = path.name
         if name.startswith("."):
             continue
-
-        source = args.srcvol / name
-        create_snapshot(args.snapvol, source, args.tag, now)
-
+        create_snapshot(args.snapvol, path, args.tag, now)
     exit(0)
 
 
@@ -286,31 +268,20 @@ def cmd_send(args):
     elif not destvol.exists():
         raise Exception("Destination volume does not exist")
 
-    # Get list of source volumes.
-    o = subprocess.run([
-        "btrfs",
-        "subvolume",
-        "list",
-        "-o",
-        str(args.snapvol)
-    ], capture_output=True, check=True)
-
     # Send each source vol to according destination and delete old snapshots.
-    for line in o.stdout.splitlines():
-        cols = line.split()
-        path = pathlib.Path(str(cols[8], "utf8"))
+    for path in args.snapvol:
         name = path.name
         if name.startswith("."):
             continue
 
         dest = destvol / name
-        send_snapshot(dest, args.snapvol / name, args.tag)
+        send_snapshot(dest, path, args.tag)
 
         if args.trim_dst is not None:
             trim_snapshots(dest, args.tag, args.trim_dst)
 
         if args.trim_src is not None:
-            trim_snapshots(args.snapvol / name, args.tag, args.trim_src)
+            trim_snapshots(path, args.tag, args.trim_src)
 
     exit(0)
 
@@ -324,7 +295,7 @@ def main():
     parser.set_defaults(func=cmd_create)
     parser.add_argument("snapvol", type=pathlib.Path,
                         help="snapshot volume")
-    parser.add_argument("srcvol", type=pathlib.Path,
+    parser.add_argument("srcvol", type=pathlib.Path, nargs="+",
                         help="volume which subvolumes will be take snapshot of")
     parser.add_argument("--tag", default="daily",
                         help="tag of snapshot (default: %(default)s)")
@@ -336,7 +307,7 @@ def main():
     parser.set_defaults(func=cmd_send)
     parser.add_argument("destvol", type=pathlib.Path,
                         help="destination volume")
-    parser.add_argument("snapvol", type=pathlib.Path,
+    parser.add_argument("snapvol", type=pathlib.Path, nargs="+",
                         help="snapshot directory to send")
     parser.add_argument("--tag", default="daily",
                         help="tag of snapshot (default: %(default)s)")
