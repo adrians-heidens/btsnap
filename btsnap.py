@@ -174,6 +174,34 @@ def send_snapshot(destvol, source, tag):
         last_sync = index - 1
 
 
+def send_volume(srcvol, destvol):
+    # Check srcvol.
+    subprocess.run([
+        "btrfs",
+        "subvolume",
+        "show",
+        str(srcvol)
+    ], check=True, capture_output=True)
+
+    # Create destvol if needed.
+    if not destvol.exists():
+        subprocess.run([
+            "btrfs",
+            "subvolume",
+            "create",
+            str(destvol)
+        ], check=True)
+
+    # Do send-receive.
+    p1 = subprocess.Popen(["btrfs", "send", srcvol], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p2 = subprocess.Popen(["btrfs", "receive", destvol], stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    o = p2.wait()
+
+    if o != 0:
+        m = p2.stdout.read().decode("utf-8")
+        raise Exception("Failed to send volume", m)
+
+
 def tag_snapshots(subvol, tag):
     """Find latest snapshot and duplicate it with another tag."""
 
@@ -286,11 +314,54 @@ def cmd_send(args):
     exit(0)
 
 
+def cmd_send2(args):
+    srcvol = args.srcvol
+    destvol = args.destvol
+
+    send_volume(srcvol, destvol)
+
+    exit(0)
+
+
+def cmd_restore(args):
+    # Get snapshots in snapvol.
+    o = subprocess.run([
+        "btrfs",
+        "subvolume",
+        "list",
+        "-o",
+        str(args.snapvol)
+    ], check=True, capture_output=True)
+
+    items = []
+    for line in o.stdout.splitlines():
+        cols = line.split()
+        path = pathlib.Path(str(cols[8], "utf8"))
+        items.append(path.name)
+    if len(items) == 0:
+        raise Exception("No snapshots found")
+
+    items.sort()
+    latest = items[-1]
+    latest_full = args.snapvol / latest
+    print("latest:", latest_full)
+
+    subprocess.run([
+        "btrfs",
+        "subvolume",
+        "snapshot",
+        latest_full,
+        args.destvol,
+    ], check=True)
+
+    exit(0)
+
+
 def main():
     main_parser = argparse.ArgumentParser()
     subparsers = main_parser.add_subparsers()
 
-    parser = subparsers.add_parser("create",
+    parser = subparsers.add_parser("create-snapshot",
         description="Create snapshots of volumes.")
     parser.set_defaults(func=cmd_create)
     parser.add_argument("snapvol", type=pathlib.Path,
@@ -299,11 +370,9 @@ def main():
                         help="volume which subvolumes will be take snapshot of")
     parser.add_argument("--tag", default="daily",
                         help="tag of snapshot (default: %(default)s)")
-    parser.add_argument("--subvol", action="store_true",
-                        help="create snapshots of subvolumes")
 
-    parser = subparsers.add_parser("send",
-        description="Send all snapshot directory to another device volume.")
+    parser = subparsers.add_parser("send-snapshot",
+        description="Send snapshot directory to another device volume.")
     parser.set_defaults(func=cmd_send)
     parser.add_argument("destvol", type=pathlib.Path,
                         help="destination volume")
@@ -317,6 +386,19 @@ def main():
                         help="trim dst dir to this many snapshots")
     parser.add_argument("--create-destvol", action="store_true",
                         help="create destination volume if not exists")
+
+    parser = subparsers.add_parser("send-volume",
+        description="Send volume from one device to another.")
+    parser.set_defaults(func=cmd_send2)
+    parser.add_argument("srcvol", type=pathlib.Path,
+                        help="volume to send")
+    parser.add_argument("destvol", type=pathlib.Path,
+                        help="volume to receive")
+
+    parser = subparsers.add_parser("restore-snapshot",)
+    parser.set_defaults(func=cmd_restore)
+    parser.add_argument("snapvol", type=pathlib.Path)
+    parser.add_argument("destvol", type=pathlib.Path)
 
     args = main_parser.parse_args()
     if "func" in args:
