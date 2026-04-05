@@ -370,6 +370,7 @@ def cmd_restore(args):
 
 def main():
     main_parser = argparse.ArgumentParser()
+    main_parser.add_argument("--version", action="version", version="%(prog)s 0.0.2")
     subparsers = main_parser.add_subparsers()
 
     parser = subparsers.add_parser("create-snapshot",
