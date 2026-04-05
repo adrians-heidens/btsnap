@@ -276,10 +276,16 @@ def trim_snapshots(subvol, tag, size):
 def cmd_create(args):
     now = datetime.datetime.now(datetime.UTC)
     for path in args.srcvol:
-        name = path.name
-        if name.startswith("."):
-            continue
-        create_snapshot(args.snapvol, path, args.tag, now)
+        path_list = []
+        if "*" in path.name:
+            path_list.extend(path.parent.glob(str(path.name)))
+        else:
+            path_list.append(path)
+
+        for path in path_list:
+            if path.name.startswith("."):
+                continue
+            create_snapshot(args.snapvol, path, args.tag, now)
     exit(0)
 
 
@@ -298,18 +304,23 @@ def cmd_send(args):
 
     # Send each source vol to according destination and delete old snapshots.
     for path in args.snapvol:
-        name = path.name
-        if name.startswith("."):
-            continue
+        path_list = []
+        if "*" in path.name:
+            path_list.extend(path.parent.glob(str(path.name)))
+        else:
+            path_list.append(path)
 
-        dest = destvol / name
-        send_snapshot(dest, path, args.tag)
+        for path in path_list:
+            if path.name.startswith("."):
+                continue
 
-        if args.trim_dst is not None:
-            trim_snapshots(dest, args.tag, args.trim_dst)
+            dest = destvol / path.name
+            send_snapshot(dest, path, args.tag)
 
-        if args.trim_src is not None:
-            trim_snapshots(path, args.tag, args.trim_src)
+            if args.trim_dst is not None:
+                trim_snapshots(dest, args.tag, args.trim_dst)
+            if args.trim_src is not None:
+                trim_snapshots(path, args.tag, args.trim_src)
 
     exit(0)
 
